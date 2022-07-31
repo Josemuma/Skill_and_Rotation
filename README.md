@@ -1,4 +1,4 @@
-# Skill_and_Rotation
+# Skill_and_Managerial_Rotation
 Code for the first chapter of my thesis and paper. 
 
 ## Instructions
