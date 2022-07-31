@@ -1,0 +1,65 @@
+library(pacman)
+p_load(dplyr,tidyverse,plyr,tictoc,purrr,ggplot2)
+
+# Compare methods ####
+# IS Period ####
+## Detection Period Positive ####
+detection_neg <- bind_cols(
+  Bayes = sapply(1:43, function(x)
+    nrow(IS_Bayes_Detected_neg[[x]])),
+  OLS = sapply(1:43, function(x) 
+    nrow(IS_OLS_Detected_neg[[x]]))
+)
+detection_neg
+colMeans(detection_neg)
+
+# Proportion skilled (IS period) Positive ####
+proportion_IS_skilled_neg <- bind_cols(
+  Bayes = sapply(1:42, function(x) 
+    nrow(inner_join(IS_Bayes_Detected_neg[[x]],
+                    IS_Bayes_Detected_neg[[x+1]], 
+                    by = 'Funds')) / nrow(IS_Bayes_Detected_neg[[x]])),
+  OLS = sapply(1:42, function(x) 
+    nrow(inner_join(IS_OLS_Detected_neg[[x]],
+                    IS_OLS_Detected_neg[[x+1]],
+                    by = 'Funds'))/nrow(IS_OLS_Detected_neg[[x]]))
+)
+# We add the year 2021 for both cases
+proportion_IS_skilled_neg
+colMeans(proportion_IS_skilled_neg, na.rm = T)
+
+# OOS Period ####
+# Proportion skilled (OOS period) Positive ####
+# We find intersection from what we saw 5 years ago and what we 
+# see the immediate next period
+proportion_OOS_skilled_neg <- bind_cols(
+  Bayes = sapply(1:42, function(x) 
+    nrow(inner_join(OOS_Bayes_Detected_neg[[x]],
+                    IS_Bayes_Detected_neg[[x]], 
+                    by = 'Funds')) / nrow(IS_Bayes_Detected_neg[[x]])),
+  OLS = sapply(1:42, function(x) 
+    nrow(inner_join(OOS_OLS_Detected_neg[[x]],
+                    IS_OLS_Detected_neg[[x]],
+                    by = 'Funds'))/nrow(IS_OLS_Detected_neg[[x]]))
+)
+proportion_OOS_skilled_neg
+colMeans(proportion_OOS_skilled_neg,na.rm = T)
+# Lack of recent positive alphas make the difference less significant
+
+# Proportion skilled (1-year & OOS) Positive ####
+# We find intersection from what we saw 1 year ago and what we 
+# see the immediate next period
+proportion_OOS_skilled_neg_1to1 <- bind_cols(
+  Bayes = sapply(1:41, function(x) 
+    nrow(inner_join(OOS_Bayes_Detected_neg[[x+1]],
+                    OOS_Bayes_Detected_neg[[x]], 
+                    by = 'Funds')) / nrow(OOS_Bayes_Detected_neg[[x]])),
+  OLS = sapply(1:41, function(x) 
+    nrow(inner_join(OOS_OLS_Detected_neg[[x+1]],
+                    OOS_OLS_Detected_neg[[x]],
+                    by = 'Funds'))/nrow(OOS_OLS_Detected_neg[[x]]))
+)
+proportion_OOS_skilled_neg_1to1
+colMeans(proportion_OOS_skilled_neg_1to1, na.rm = T)
+colMeans(proportion_OOS_skilled_neg_1to1 %>% replace_na(list(Bayes = 0, OLS = 0)))
+
