@@ -1,0 +1,204 @@
+---
+title: "Untitled"
+author: "JAMM"
+date: "2022-08-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(pacman)
+p_load(dplyr, ggplot2, tidyquant, reshape2, tidyr, tidyquant)
+# Bayes ####
+# We load the DBs and conver to numeric where necessary for the analysis
+# Estimated Alphas IS (5 year period)
+BayAlphaIS <- readRDS('Bayes_5_Year_Median_Alpha')
+# Probabilities IS (5 year period)
+BayProbIS <- readRDS('Bayes_5_Year_Prob')
+# Estimated Alphas OOS (1 year period)
+BayAlphaOOS <- readRDS('Bayes_1_Year_Median_Alpha')
+# Probabilities OOS (1 year period)
+BayProbOOS <- readRDS('Bayes_1_Year_Prob')
+# Returns ####
+RealReturns<- readRDS("RealReturns")
+
+```
+# Alpha Analysis
+For each period in the detection period, we create an EW portfolio of the alphas of the funds selected. Hold it for a year and compare the average of the portfolio's alpha between positive, negative and zero alpha. 
+
+```{r, echo = FALSE, message =FALSE}
+# List of ALPHA portfolios by period 
+## POSITIVE ####
+IS_to_1_90 <- lapply(2:43, function(x)
+  left_join(
+    left_join(
+      left_join(
+        BayProbIS %>% dplyr::select(Funds, x) %>% 
+          filter(!is.na(.[[2]]) & .[[2]] >= 0.90),
+        BayAlphaIS %>% dplyr::select(Funds, x)
+        , by = 'Funds'),
+      BayProbOOS %>% dplyr::select(Funds,x)
+    , by = 'Funds'),
+    BayAlphaOOS %>% dplyr::select(Funds, x)
+    ,by = 'Funds') %>% filter(!is.na(.[[4]])))
+## NEGATIVE ####
+IS_to_1_neg_90 <- lapply(2:43, function(x)
+  left_join(
+    left_join(
+      left_join(
+        BayProbIS %>% dplyr::select(Funds, x) %>% 
+          filter(!is.na(.[[2]]) & .[[2]] <= 0.10),
+        BayAlphaIS %>% dplyr::select(Funds, x)
+        , by = 'Funds'),
+      BayProbOOS %>% dplyr::select(Funds,x)
+      , by = 'Funds'),
+    BayAlphaOOS %>% dplyr::select(Funds, x)
+    ,by = 'Funds') %>% filter(!is.na(.[[4]])))
+
+## ZERO  ####
+IS_to_1_zer_90 <- lapply(2:43, function(x)
+  left_join(
+    left_join(
+      left_join(
+        BayProbIS %>% dplyr::select(Funds, x) %>% 
+          filter(!is.na(.[[2]]) & .[[2]] > 0.10 & .[[2]] < 0.90),
+        BayAlphaIS %>% dplyr::select(Funds, x)
+        , by = 'Funds'),
+      BayProbOOS %>% dplyr::select(Funds,x)
+      , by = 'Funds'),
+    BayAlphaOOS %>% dplyr::select(Funds, x)
+    ,by = 'Funds') %>% filter(!is.na(.[[4]])))
+```
+
+```{r, echo = FALSE, warning = FALSE}
+# We bind columns of results in the following way. First the years. Second the average column of the positive alphas the year after
+# Examples to run before
+# colMeans(IS_to_1_90[[7]] %>% dplyr::select(3,5))
+# colMeans(IS_to_1_neg_90[[12]] %>% dplyr::select(3,5))
+# colMeans(IS_to_1_zer_90[[12]] %>% dplyr::select(3,5))
+
+alphas_t_t1_90 <- bind_cols(
+  Year = 1980:2021,
+  EW_Alpha_t1_Pos_90 = t(sapply(1:42, function(x)
+    colMeans(IS_to_1_90[[x]] %>% dplyr::select(3,5))
+  ))[,2],
+  EW_Alpha_t1_Neg_90 = t(sapply(1:42, function(x)
+    colMeans(IS_to_1_neg_90[[x]] %>% dplyr::select(3,5))
+  ))[,2],
+  EW_Alpha_t1_Zer_90 = t(sapply(1:42, function(x)
+    colMeans(IS_to_1_zer_90[[x]] %>% dplyr::select(3,5))
+  ))[,2]
+)
+colnames(alphas_t_t1_90) <- c('Year','Pos.Alph.t1','Neg.Alph.t1','Zer.Alph.t1')
+# Store Table
+# write.table(alphas_t_t1_90,
+#             file = 'alphas_t_t1_90.txt',sep = ',', row.names = F, quote = F)
+alphas_t_t1_90 %>% print(n = Inf)
+
+# Plot ####
+# ggsave(filename = "Alpha_Portfolios_Returns_90.png",
+# ggplot(melt(alphas_t_t1_90, 
+#      id.vars = 'Year'),aes(x = Year, y = value, colour = factor(variable))) +
+#   geom_line() +
+#   ylab('Average end of \n Period Alpha') +
+#   theme_classic() + 
+#   scale_color_manual("",values = c("steelblue3","red2", 'darkgreen'),
+#                      labels = c('Positive Alpha', 'Negative Alpha', 'Zero Alpha')) +
+#   theme(legend.position="bottom", legend.text=element_text(size=9))
+# ,width = 10, height = 4, dpi = 300, units = "in", device='png')
+
+```
+
+# Portfolio of returns
+For each period in the detection period, we create an EW portfolio of the returns of the funds selected. Hold it for a year and compare the average of the portfolio's return between positive, negative and zero alpha. 
+
+```{r, echo = FALSE}
+# List of RETURN portfolios by period 
+## POSITIVE ####
+ret_portf_pos_90 <- lapply(1:42, function(x) 
+  left_join(
+      IS_to_1_90[[x]] %>% dplyr::select(Funds),
+    RealReturns %>% 
+      dplyr::select(Funds, returnrf, date) %>% 
+      filter(date >= paste(1979+x,'-01-01',sep = '') & 
+               date <= paste(1979+x,'-12-31',sep = '')),
+    by = 'Funds')
+  )
+## NEGATIVE ####
+ret_portf_neg_90 <- lapply(1:42, function(x) 
+  left_join(
+      IS_to_1_neg_90[[x]] %>% dplyr::select(Funds),
+    RealReturns %>% 
+      dplyr::select(Funds, returnrf, date) %>% 
+      filter(date >= paste(1979+x,'-01-01',sep = '') & 
+               date <= paste(1979+x,'-12-31',sep = '')),
+    by = 'Funds')
+)
+## ZERO ####
+ret_portf_zer_90 <- lapply(1:42, function(x) 
+  left_join(
+      IS_to_1_zer_90[[x]] %>% dplyr::select(Funds),
+    RealReturns %>% 
+      dplyr::select(Funds, returnrf, date) %>% 
+      filter(date >= paste(1979+x,'-01-01',sep = '') & 
+               date <= paste(1979+x,'-12-31',sep = '')),
+    by = 'Funds')
+)
+```
+# SP500
+Code chunk to load and prepare the SP500 data to add as comparison benchmark for the rest.
+```{r, echo=FALSE}
+sp500 <- as_tibble(read.csv('sp500_monthly.csv')) %>% dplyr::select(caldt, sprtrn) %>% dplyr::rename(date = caldt )
+sp500$date <- as.Date(as.character(sp500$date), format = "%Y%m%d")
+sp500 <- distinct(right_join(sp500,RealReturns %>% dplyr::select(date, rf),by = 'date')) %>% mutate(sprtrnRf = sprtrn - rf)
+sp500_ret <- lapply(1:42, function(x)
+      sp500 %>%
+        filter(date >= paste(1979+x,'-01-01',sep = '') &
+                 date <= paste(1979+x,'-12-31',sep = '')))
+```
+
+```{r}
+## Table of columns  ####
+# Example with a year
+# colMeans(ret_portf_pos_90[[7]] %>% group_by(Funds) %>% summarise(Suma = sum(returnrf)) %>% dplyr::select(Suma))
+
+returns_portf_90 <- 
+  bind_cols(
+    Year = 1980:2021,
+    as_tibble(sapply(
+      1:42, function(x)
+        colMeans(ret_portf_pos_90[[x]] %>% group_by(Funds) %>% dplyr::summarise(Suma = sum(returnrf)) %>% dplyr::select(Suma)))),
+    as_tibble(sapply(
+      1:42, function(x)
+        colMeans(ret_portf_neg_90[[x]] %>% group_by(Funds) %>% dplyr::summarise(Suma = sum(returnrf)) %>% dplyr::select(Suma)))),
+    as_tibble(sapply(
+      1:42, function(x)
+        colMeans(ret_portf_zer_90[[x]] %>% group_by(Funds) %>% dplyr::summarise(Suma = sum(returnrf)) %>% dplyr::select(Suma))))
+    , 
+as_tibble(sapply(
+  1:42, function(x)
+        colMeans(sp500_ret[[x]] %>% dplyr::summarise(Suma = sum(sprtrnRf)) %>% dplyr::select(Suma))))
+    )
+colnames(returns_portf_90) <- c('Year', 'Pos.Alph.Ret.t1','Neg.Alph.Ret.t1','Zer.Alph.Ret.t1', 'S&P500')
+# write.table(returns_portf_90,
+#             file = 'returns_portf_90.txt',sep = ',', row.names = F, quote = F)
+returns_portf_90 %>% print(n = Inf)
+```
+## Figure with returns per alpha
+```{r, echo = FALSE}
+# Make sure to add the column of SP500 as cbind
+# ggsave(filename = "returns_portf_90.png",
+ggplot(melt(bind_cols(returns_portf_90 %>% dplyr::select(Year, 2:5)), 
+            id.vars = 'Year'),aes(x = Year, y = value, colour = factor(variable))) +
+  geom_line() +
+  ylab('Return of Portfolios \n (One Holding Period)') +
+  theme_minimal() + 
+  scale_y_continuous(labels = scales::percent) +
+  scale_color_manual("",values = c("steelblue3","red2", 'darkgreen', 'orange'),
+                     labels = c('Positive Alpha', 'Negative Alpha', 'Zero Alpha', 'S&P500')) +
+  geom_hline(yintercept=0, color = "black") +
+  theme(legend.position="bottom", legend.text=element_text(size=9))
+# ,width = 10, height = 4, dpi = 300, units = "in", device='png')
+```
+
+

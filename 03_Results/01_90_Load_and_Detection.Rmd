@@ -1,0 +1,669 @@
+---
+title: "Paper_01"
+author: "JAMM"
+date: "2022-08-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+# Load libraries
+knitr::opts_chunk$set(echo = TRUE)
+library(pacman)
+p_load(dplyr, tidyverse,tibble,plyr,kableExtra,tictoc,purrr,ggplot2,
+       fitdistrplus, plyr, knitr, scales)
+```
+
+# Load the Bayes and OLS
+
+```{r, include = FALSE}
+# Load needed data to get results
+## Funds and Returns ####
+RealReturns<- readRDS("RealReturns")
+FundsToUse <- readRDS("Number_of_Fund") # Real Funds Numbers
+colnames(FundsToUse)[1] <- c("Funds")
+
+# Bayes ####
+# We load the DBs and conver to numeric where necessary for the analysis
+# Estimated Alphas IS (5 year period)
+BayAlphaIS <- readRDS('Bayes_5_Year_Median_Alpha')
+# Probabilities IS (5 year period)
+BayProbIS <- readRDS('Bayes_5_Year_Prob')
+# Estimated Alphas OOS (1 year period)
+BayAlphaOOS <- readRDS('Bayes_1_Year_Median_Alpha')
+# Probabilities OOS (1 year period)
+BayProbOOS <- readRDS('Bayes_1_Year_Prob')
+
+# OLS ####
+OLSAlphaIS <- readRDS('OLS_Alphas_5_Year') 
+OLSpValueIS <- readRDS('OLS_pValue_5_Year')
+OLSAlphaOOS <- readRDS('OLS_Alphas_1_Year')
+OLSpValueOOS <- readRDS('OLS_pValue_1_Year')
+```
+
+# Calculation of DFs
+
+## Bayes Positive
+
+```{r, include = FALSE}
+# Bayes
+## Bayes IS ####
+# Funds detected in IS not free of survivor bias
+BayIS_All90 <- lapply(2:44, function(x)
+  (tibble(BayProbIS %>% dplyr::select(Funds,x) %>% 
+            filter(.[[2]] >= 0.90))))
+
+# One has a list per period with the detected funds in the 
+# 5-year period, next period and t + 1 period IS
+IS_Bayes_Detected90 <- lapply(2:44, function(x)
+    left_join(
+      BayProbIS %>% dplyr::select(Funds, x) %>% 
+        filter(!is.na(.[[2]]) & .[[2]] >= 0.90),
+      BayAlphaIS %>% dplyr::select(Funds, x)
+      , by = 'Funds'))
+
+# The returns for the list above throughout each month
+IS_Bayes_Detected_Rtns90 <- lapply(2:44, function(x) 
+  left_join(
+    BayProbIS %>% dplyr::select(Funds, x) %>% 
+      filter(!is.na(.[[2]]) & .[[2]] >= 0.90) %>% 
+      dplyr::select(Funds),
+    RealReturns %>% dplyr::select(Funds, returnrf, date, mtna, mnav) %>% 
+      filter(date >= '1979-12-01'), 
+    by = 'Funds')
+)
+      
+##  Bayes OOS ####
+# One has a list per period with the detected funds in the 
+# 5-year period, next period and t + 1 period OOS
+OOS_Bayes_Detected90 <- lapply(2:43, function(x)
+  left_join(
+    BayProbOOS %>% dplyr::select(Funds, x) %>% 
+      filter(!is.na(.[[2]]) & .[[2]] >= 0.90),
+    BayAlphaOOS %>% dplyr::select(Funds, x)
+    , by = 'Funds'))
+
+# The returns for the list above throughout each month
+OOS_Bayes_Detected_Rtns90 <- lapply(2:43, function(x) 
+  left_join(
+    BayProbIS %>% dplyr::select(Funds, x) %>% 
+      filter(!is.na(.[[2]]) & .[[2]] >= 0.90) %>% 
+      dplyr::select(Funds),
+    RealReturns  %>% dplyr::select(Funds, returnrf, date, mtna, mnav) %>% 
+      filter(date >= '1979-12-01'), 
+    by = 'Funds')
+)
+```
+
+## OLS Positive
+
+```{r, include = FALSE}
+##  OLS IS ####
+# One has a list per period with the detected funds in the 
+# 5-year period, next period and t + 1 period IS
+OLSIS_All90 <-lapply(2:44, function(x)
+  left_join(OLSAlphaIS %>% dplyr::select(1,x) %>% filter(.[[2]] > 0),
+            OLSpValueIS %>% dplyr::select(1,x) %>% filter(.[[2]] <= 0.10),
+            by = 'Funds') %>% filter(!is.na(.[[3]])))
+
+# Funds detected in IS free of survivor bias
+IS_OLS_Detected90 <- lapply(2:44, function(x) 
+  left_join(
+    OLSAlphaIS %>% dplyr::select(Funds, x) %>% 
+      filter(!is.na(.[[2]]) & .[[2]] >= 0.0),
+    OLSpValueIS %>% dplyr::select(Funds, x) %>% 
+      filter(!is.na(.[[2]]))
+    , by = 'Funds') %>% filter(.[[3]] <= 0.10))
+
+# The returns for the list above throughout each month
+IS_OLS_Detected_Rtns90 <- lapply(2:44, function(x) 
+  left_join(
+    IS_OLS_Detected90[[x-1]] %>% dplyr::select(Funds),
+    RealReturns  %>% dplyr::select(Funds, returnrf, date, mtna, mnav)%>%
+      filter(date >= '1979-12-01'), 
+    by = 'Funds')
+)
+
+##  OLS OOS ####
+# One has a list per period with the detected funds in the 
+# 5-year period, next period and t + 1 period OOS
+OOS_OLS_Detected90 <- lapply(2:43, function(x) 
+  inner_join(
+    OLSAlphaOOS %>% dplyr::select(Funds, x) %>% 
+      filter(!is.na(.[[2]]) & .[[2]] >= 0),
+    OLSpValueOOS %>% dplyr::select(Funds, x) %>% 
+      filter(!is.na(.[[2]]) & .[[2]] <= 0.10)
+    , by = 'Funds'))
+
+# The returns for the list above throughout each month
+OOS_OLS_Detected_Rtns90 <- lapply(2:43, function(x) 
+  left_join(
+    OOS_OLS_Detected90[[x-1]] %>% dplyr::select(Funds),
+    RealReturns  %>% dplyr::select(Funds, returnrf, date, mtna, mnav) %>%
+      filter(date >= '1979-12-01'), 
+    by = 'Funds')
+)
+```
+
+## Bayes Negative
+
+```{r, include = FALSE}
+## Bayes IS ####
+# Funds detected in IS not free of survivor bias
+BayIS_All_neg90 <- lapply(2:44, function(x)
+  (tibble(BayProbIS %>% dplyr::select(Funds,x) %>% 
+            filter(.[[2]] <= 0.10))))
+
+# One has a list per period with the detected funds in the 
+# 5-year period, next period and t + 1 period IS
+IS_Bayes_Detected_neg90 <- lapply(2:44, function(x)
+  left_join(
+    BayProbIS %>% dplyr::select(Funds, x) %>% 
+      filter(!is.na(.[[2]]) & .[[2]] <= 0.10),
+    BayAlphaIS %>% dplyr::select(Funds, x)
+    , by = 'Funds'))
+
+# The returns for the list above throughout each month
+IS_Bayes_Detected_Rtns_neg90 <- lapply(2:44, function(x) 
+  left_join(
+    BayProbIS %>% dplyr::select(Funds, x) %>% 
+      filter(!is.na(.[[2]]) & .[[2]] <= 0.10) %>% 
+      dplyr::select(Funds),
+    RealReturns %>% dplyr::select(Funds, returnrf, date, mtna, mnav) %>% 
+      filter(date >= '1979-12-01'), 
+    by = 'Funds')
+)
+
+##  Bayes OOS ####
+# One has a list per period with the detected funds in the 
+# 5-year period, next period and t + 1 period OOS
+OOS_Bayes_Detected_neg90 <- lapply(2:43, function(x)
+  left_join(
+    BayProbOOS %>% dplyr::select(Funds, x) %>% 
+      filter(!is.na(.[[2]]) & .[[2]] <= 0.10),
+    BayAlphaOOS %>% dplyr::select(Funds, x)
+    , by = 'Funds'))
+
+# The returns for the list above throughout each month
+OOS_Bayes_Detected_Rtns_neg90 <- lapply(2:43, function(x) 
+  left_join(
+    BayProbIS %>% dplyr::select(Funds, x) %>% 
+      filter(!is.na(.[[2]]) & .[[2]] <= 0.10) %>% 
+      dplyr::select(Funds),
+    RealReturns  %>% dplyr::select(Funds, returnrf, date, mtna, mnav) %>% 
+      filter(date >= '1979-12-01'), 
+    by = 'Funds')
+)
+
+```
+
+## OLS Negative
+
+```{r, include = FALSE}
+##  OLS IS ####
+# One has a list per period with the detected funds in the 
+# 5-year period, next period and t + 1 period IS
+OLSIS_All_neg90 <-lapply(2:44, function(x)
+  left_join(OLSAlphaIS %>% dplyr::select(1,x) %>% filter(.[[2]] < 0),
+            OLSpValueIS %>% dplyr::select(1,x) %>% filter(.[[2]] <= 0.10),
+            by = 'Funds') %>% filter(!is.na(.[[3]])))
+
+# Funds detected in IS free of survivor bias
+IS_OLS_Detected_neg90 <- lapply(2:44, function(x) 
+  left_join(
+    OLSAlphaIS %>% dplyr::select(Funds, x) %>% 
+      filter(!is.na(.[[2]]) & .[[2]] < 0.0),
+    OLSpValueIS %>% dplyr::select(Funds, x) %>% 
+      filter(!is.na(.[[2]]))
+    , by = 'Funds') %>% filter(.[[3]] <= 0.10))
+
+##  OLS OOS ####
+# One has a list per period with the detected funds in the 
+# 5-year period, next period and t + 1 period OOS
+OOS_OLS_Detected_neg90 <- lapply(2:43, function(x) 
+  inner_join(
+    OLSAlphaOOS %>% dplyr::select(Funds, x) %>% 
+      filter(!is.na(.[[2]]) & .[[2]] < 0),
+    OLSpValueOOS %>% dplyr::select(Funds, x) %>% 
+      filter(!is.na(.[[2]]) & .[[2]] <= 0.10)
+    , by = 'Funds'))
+
+# The returns for the list above throughout each month
+OOS_OLS_Detected_Rtns_neg90 <- lapply(2:43, function(x) 
+  left_join(
+    OOS_OLS_Detected_neg90[[x-1]] %>% dplyr::select(Funds),
+    RealReturns  %>% dplyr::select(Funds, returnrf, date, mtna, mnav) %>%
+      filter(date >= '1979-12-01'), 
+    by = 'Funds')
+)
+
+# The returns for the list above throughout each month
+IS_OLS_Detected_Rtns_neg90 <- lapply(2:44, function(x) 
+  left_join(
+    IS_OLS_Detected_neg90[[x-1]] %>% dplyr::select(Funds),
+    RealReturns  %>% dplyr::select(Funds, returnrf, date, mtna, mnav)%>%
+      filter(date >= '1979-12-01'), 
+    by = 'Funds')
+)
+```
+
+## Bayes Zero
+
+```{r, include = FALSE}
+## Bayes IS ####
+# Funds detected in IS not free of survivor bias
+BayIS_All_zer90 <- lapply(2:44, function(x)
+  (tibble(BayProbIS %>% dplyr::select(Funds,x) %>% 
+            filter(.[[2]] > 0.10 & .[[2]] < 0.90))))
+
+# One has a list per period with the detected funds in the 
+# 5-year period, next period and t + 1 period IS
+IS_Bayes_Detected_zer90 <- lapply(2:44, function(x)
+  left_join(
+    BayProbIS %>% dplyr::select(Funds, x) %>% 
+      filter(!is.na(.[[2]]) & .[[2]] > 0.10 & .[[2]] < 0.90),
+    BayAlphaIS %>% dplyr::select(Funds, x)
+    , by = 'Funds'))
+
+# The returns for the list above throughout each month
+IS_Bayes_Detected_Rtns_zer90 <- lapply(2:44, function(x) 
+  left_join(
+    BayProbIS %>% dplyr::select(Funds, x) %>% 
+      filter(!is.na(.[[2]]) & .[[2]] > 0.10 & .[[2]] < 0.90) %>% 
+      dplyr::select(Funds),
+    RealReturns %>% dplyr::select(Funds, returnrf, date, mtna, mnav) %>% 
+      filter(date >= '1979-12-01'), 
+    by = 'Funds')
+)
+
+##  Bayes OOS ####
+# One has a list per period with the detected funds in the 
+# 5-year period, next period and t + 1 period OOS
+OOS_Bayes_Detected_zer90 <- lapply(2:43, function(x)
+  left_join(
+    BayProbOOS %>% dplyr::select(Funds, x) %>% 
+      filter(!is.na(.[[2]]) & .[[2]] > 0.10 & .[[2]] < 0.90),
+    BayAlphaOOS %>% dplyr::select(Funds, x)
+    , by = 'Funds'))
+
+# The returns for the list above throughout each month
+OOS_Bayes_Detected_Rtns_zer90 <- lapply(2:43, function(x) 
+  left_join(
+    BayProbIS %>% dplyr::select(Funds, x) %>% 
+      filter(!is.na(.[[2]]) & .[[2]] > 0.10 & .[[2]] < 0.90) %>% 
+      dplyr::select(Funds),
+    RealReturns  %>% dplyr::select(Funds, returnrf, date, mtna, mnav) %>% 
+      filter(date >= '1979-12-01'), 
+    by = 'Funds')
+)
+```
+
+## OLS Zero
+
+```{r, include = FALSE}
+##  OLS IS ####
+# One has a list per period with the detected funds in the 
+# 5-year period, next period and t + 1 period IS
+OLSIS_All_zer90 <-lapply(2:44, function(x)
+  left_join(OLSAlphaIS %>% dplyr::select(1,x),
+            OLSpValueIS %>% dplyr::select(1,x) %>% filter(.[[2]] > 0.10),
+            by = 'Funds') %>% filter(!is.na(.[[3]])))
+
+# Funds detected in IS free of survivor bias
+IS_OLS_Detected_zer90 <- lapply(2:44, function(x) 
+  left_join(
+    OLSAlphaIS %>% dplyr::select(Funds, x) %>% 
+      filter(!is.na(.[[2]])),
+    OLSpValueIS %>% dplyr::select(Funds, x) %>% 
+      filter(!is.na(.[[2]]))
+    , by = 'Funds') %>% filter(.[[3]] > 0.10))
+
+# The returns for the list above throughout each month
+IS_OLS_Detected_Rtns_zer90 <- lapply(2:44, function(x) 
+  left_join(
+    IS_OLS_Detected_zer90[[x-1]] %>% dplyr::select(Funds),
+    RealReturns  %>% dplyr::select(Funds, returnrf, date, mtna, mnav)%>%
+      filter(date >= '1979-12-01'), 
+    by = 'Funds')
+)
+
+##  OLS OOS ####
+# One has a list per period with the detected funds in the 
+# 5-year period, next period and t + 1 period OOS
+OOS_OLS_Detected_zer90 <- lapply(2:43, function(x) 
+  inner_join(
+    OLSAlphaOOS %>% dplyr::select(Funds, x) %>% 
+      filter(!is.na(.[[2]])),
+    OLSpValueOOS %>% dplyr::select(Funds, x) %>% 
+      filter(!is.na(.[[2]]) & .[[2]] > 0.10)
+    , by = 'Funds'))
+
+# The returns for the list above throughout each month
+OOS_OLS_Detected_Rtns_zer90 <- lapply(2:43, function(x) 
+  left_join(
+    OOS_OLS_Detected_zer90[[x-1]] %>% dplyr::select(Funds),
+    RealReturns  %>% dplyr::select(Funds, returnrf, date, mtna, mnav) %>%
+      filter(date >= '1979-12-01'), 
+    by = 'Funds')
+)
+```
+
+# Detection of funds
+
+The next code output is to have the list of tables of the detection for each of the positive, negative and zero funds, according to the conditions written in the paper.
+
+# Total of funds per period
+
+```{r, echo = FALSE}
+funds_per_year_90 <- sapply(2:ncol(BayAlphaIS), function(x) 
+  nrow(BayAlphaIS %>% dplyr::select(x) %>% filter(!is.na(.))))
+funds_per_year_90
+funds_per_year_table_90 <- bind_cols(Year = 1979:2021, Funds = funds_per_year_90)
+# write.table((funds_per_year_table_90),
+#             file = 'Number_of_Funds_90.txt',sep = ' ', row.names = F, quote = F)
+```
+
+# Plot
+``` {r, echo = FALSE}
+# Number of funds per period (5-years)
+# ggsave(filename = "Number_Funds_90.png",
+ggplot(reshape2::melt(funds_per_year_table_90, id.var = "Year"),
+       aes(Year,value,colour = variable)) +
+  geom_line(aes(linetype=variable, group = variable)) +
+  scale_linetype_manual("", values=c("solid", "dashed","solid", "dashed"),
+                        labels = "Number of funds per year") +
+  theme_classic() +
+  labs(x = "Year", y = "Number of Funds") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.9, hjust=1.5))+
+  scale_color_manual("",values = c("steelblue3","red2", "darkgreen","pink"),
+                     labels = "Number of funds per year") +
+  theme(legend.position = "bottom",legend.text = element_text(size = 8),
+        axis.text = element_text(size = 8),
+        axis.title.x = element_text(size = 11),
+        axis.title.y = element_text(size = 11),legend.title=element_blank())
+# ,width = 10, height = 4, dpi = 300, units = "in", device='png')
+```
+
+# Detection
+## Positive
+```{r, echo = FALSE}
+detection_positive90 <- bind_cols(
+  Bayes = sapply(1:43, function(x)
+    nrow(IS_Bayes_Detected90[[x]])),
+  OLS = sapply(1:43, function(x) 
+    nrow(IS_OLS_Detected90[[x]]))
+)
+detection_positive90
+colMeans(detection_positive90)
+```
+
+## Negative
+```{r, echo = FALSE}
+detection_neg90 <- bind_cols(
+  Bayes = sapply(1:43, function(x)
+    nrow(IS_Bayes_Detected_neg90[[x]])),
+  OLS = sapply(1:43, function(x) 
+    nrow(IS_OLS_Detected_neg90[[x]]))
+)
+detection_positive90
+colMeans(detection_positive90)
+```
+
+## Zero
+```{r, echo = FALSE}
+# Detected Funds
+detection_zer_90 <- bind_cols(
+  Bayes = funds_per_year_90 - detection_positive90$Bayes - detection_neg90$Bayes,
+  OLS = funds_per_year_90 - detection_positive90$OLS - detection_neg90$OLS
+)
+detection_zer_90
+colMeans(detection_zer_90)
+```
+
+### Final Table
+``` {r, echo =FALSE}
+# Detection Table ####
+## Positive ####
+detection_table90 <- bind_cols(
+  paste0(1975:2017,rep('-'),1979:2021)[1:43],
+  detection_positive90, detection_neg90, detection_zer_90
+)
+colnames(detection_table90)<- c("5-Year Period", 'BayesP','OLSP','BayesN','OLSN', 'ZeroB','ZeroOLS')
+detection_table90
+# write.table((detection_table90),
+#             file = 'detection90.txt',sep = ',', row.names = F, quote = F)
+```
+
+### Prop of Tot
+```{r, echo=FALSE}
+# Proportion of detected funds out of the total number of funds in the period
+# Bayes
+final_table_Bayes_90 <- bind_cols(funds_per_year_table_90, Positive = detection_positive90$Bayes, Negative = detection_neg90$Bayes)
+final_table_Bayes_90 <- final_table_Bayes_90 %>% mutate(Zero = Funds - Positive - Negative) %>% 
+  mutate(Prop_Pos = Positive / Funds) %>% 
+  mutate(Prop_Neg = Negative / Funds) %>% 
+  mutate(Prop_Zero = Zero / Funds)
+final_table_Bayes_90 %>% dplyr::select(Year, Prop_Pos, Prop_Neg, Prop_Zero)
+## Save
+# write.table((final_table_Bayes_90 %>% dplyr::select(Year, Prop_Pos, Prop_Neg, Prop_Zero)),
+#             file = 'porportion_Bayes_Initial_90.txt',sep = ',', row.names = F, quote = F)
+# OLS
+final_table_OLS_90 <- bind_cols(funds_per_year_table_90, Positive = detection_positive90$OLS, Negative = detection_neg90$OLS)
+final_table_OLS_90 <- final_table_OLS_90 %>% mutate(Zero = Funds - Positive - Negative) %>% 
+  mutate(Prop_Pos = Positive / Funds) %>% 
+  mutate(Prop_Neg = Negative / Funds) %>% 
+  mutate(Prop_Zero = Zero / Funds)
+final_table_OLS_90 %>% dplyr::select(Year, Prop_Pos, Prop_Neg, Prop_Zero)
+# write.table((final_table_OLS_90 %>% dplyr::select(Year, Prop_Pos, Prop_Neg, Prop_Zero)),
+#             file = 'porportion_OLS_Initial_90.txt',sep = ',', row.names = F, quote = F)
+```
+### Plot
+```{r, echp = FALSE}
+# Detection Plot ####
+# ggsave(filename = "Detected_IS_90.png",
+ggplot(reshape2::melt(detection_table90 %>% dplyr::select(1:5), id.var = "5-Year Period"),
+       aes(`5-Year Period`,value,colour = variable)) +
+  geom_line(aes(linetype=variable, group = variable)) +
+  scale_linetype_manual("", values=c("solid", "dashed","solid", "dashed"),
+                        labels = c("Bayes \n Positive Alpha", "OLS \n Positive Alpha",
+                                   "Bayes \n Negative Alpha", "OLS \n Negative Alpha")) +
+  theme_classic() +
+  scale_y_continuous(trans='log10') +
+  labs(x = "IS Period", y = "Positive alpha funds \n (logarithmic)") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.9, hjust=1.5))+
+  scale_color_manual("",values = c("steelblue3","red2", "darkgreen","pink"),
+                     labels = c("Bayes \n Positive Alpha", "OLS \n Positive Alpha",
+                                "Bayes \n Negative Alpha", "OLS \n Negative Alpha")) +
+  theme(legend.position = "bottom",legend.text = element_text(size = 8),
+        axis.text = element_text(size = 8),
+        axis.title.x = element_text(size = 11),
+        axis.title.y = element_text(size = 11),legend.title=element_blank())
+# ,width = 10, height = 4, dpi = 300, units = "in", device='png')
+
+```
+
+# Proportions
+## Positive
+```{r, echo = FALSE}
+# IS Proportion skilled
+proportion_IS_skilled_positive_90 <- bind_cols(
+  Bayes = sapply(1:42, function(x) 
+    nrow(inner_join(IS_Bayes_Detected90[[x]],
+                    IS_Bayes_Detected90[[x+1]], 
+                    by = 'Funds')) / nrow(IS_Bayes_Detected90[[x]])),
+  OLS = sapply(1:42, function(x) 
+    nrow(inner_join(IS_OLS_Detected90[[x]],
+                    IS_OLS_Detected90[[x+1]],
+                    by = 'Funds'))/nrow(IS_OLS_Detected90[[x]]))
+)
+proportion_IS_skilled_positive_90
+colMeans(proportion_IS_skilled_positive_90, na.rm = T)
+# t.test(proportion_IS_skilled_positive$Bayes, proportion_IS_skilled_positive$OLS)
+# wilcox.test(proportion_IS_skilled_positive$Bayes, proportion_IS_skilled_positive$OLS)
+
+# OOS Proportion skilled
+# We find intersection from what we saw 5 years ago and what we 
+# see the immediate next period
+proportion_OOS_skilled_positive_90 <- bind_cols(
+  Bayes = sapply(1:42, function(x) 
+    nrow(inner_join(OOS_Bayes_Detected90[[x]],
+                    IS_Bayes_Detected90[[x]], 
+                    by = 'Funds')) / nrow(IS_Bayes_Detected90[[x]])),
+  OLS = sapply(1:42, function(x) 
+    nrow(inner_join(OOS_OLS_Detected90[[x]],
+                    IS_OLS_Detected90[[x]],
+                    by = 'Funds'))/nrow(IS_OLS_Detected90[[x]]))
+)
+proportion_OOS_skilled_positive_90
+colMeans(proportion_OOS_skilled_positive_90,na.rm = T)
+# Lack of recent positive alphas make the difference less significant
+# t.test(proportion_OOS_skilled_positive$Bayes, proportion_OOS_skilled_positive$OLS)
+# wilcox.test(proportion_OOS_skilled_positive$Bayes, proportion_OOS_skilled_positive$OLS)
+```
+
+## Negative
+```{r, echo = FALSE}
+# IS Proportion skilled
+proportion_IS_skilled_neg_90 <- bind_cols(
+  Bayes = sapply(1:42, function(x) 
+    nrow(inner_join(IS_Bayes_Detected_neg90[[x]],
+                    IS_Bayes_Detected_neg90[[x+1]], 
+                    by = 'Funds')) / nrow(IS_Bayes_Detected_neg90[[x]])),
+  OLS = sapply(1:42, function(x) 
+    nrow(inner_join(IS_OLS_Detected_neg90[[x]],
+                    IS_OLS_Detected_neg90[[x+1]],
+                    by = 'Funds'))/nrow(IS_OLS_Detected_neg90[[x]]))
+)
+proportion_IS_skilled_neg_90
+colMeans(proportion_IS_skilled_neg_90, na.rm = T)
+# t.test(proportion_IS_skilled_neg$Bayes, proportion_IS_skilled_neg$OLS)
+# wilcox.test(proportion_IS_skilled_neg$Bayes, proportion_IS_skilled_neg$OLS)
+
+# OOS Proportion skilled
+# We find intersection from what we saw 5 years ago and what we 
+# see the immediate next period
+proportion_OOS_skilled_neg_90 <- bind_cols(
+  Bayes = sapply(1:42, function(x) 
+    nrow(inner_join(OOS_Bayes_Detected_neg90[[x]],
+                    IS_Bayes_Detected_neg90[[x]], 
+                    by = 'Funds')) / nrow(IS_Bayes_Detected_neg90[[x]])),
+  OLS = sapply(1:42, function(x) 
+    nrow(inner_join(OOS_OLS_Detected_neg90[[x]],
+                    IS_OLS_Detected_neg90[[x]],
+                    by = 'Funds'))/nrow(IS_OLS_Detected_neg90[[x]]))
+)
+proportion_OOS_skilled_neg_90
+colMeans(proportion_OOS_skilled_neg_90,na.rm = T)
+# Lack of recent positive alphas make the difference less significant
+# t.test(proportion_OOS_skilled_neg$Bayes, proportion_OOS_skilled_neg$OLS)
+# wilcox.test(proportion_OOS_skilled_neg$Bayes, proportion_OOS_skilled_neg$OLS)
+```
+
+## Prop Tables
+### IS
+``` {r, echo = FALSE}
+# Proportion IS Table ####
+porportion_IS_table90 <- bind_cols(
+  paste0(1976:2017,rep('-'),1980:2021)[1:42],
+  percent(proportion_IS_skilled_positive_90$Bayes,accuracy = 0.01),
+  percent(proportion_IS_skilled_positive_90$OLS, accuracy = 0.01),
+  percent(proportion_IS_skilled_neg_90$Bayes,accuracy = 0.01),
+  percent(proportion_IS_skilled_neg_90$OLS,accuracy = 0.01)
+)
+colnames(porportion_IS_table90) <- c("5-Year Period",'BayesP','OLSP', 'BayesN', 'OLSN')
+porportion_IS_table90
+## Save
+# write.table((porportion_IS_table90),
+#             file = 'porportion_IS_table90.txt',sep = ',', row.names = F, quote = F)
+
+```
+### OOS
+```{r, echo = FALSE}
+# Proportion OOS Table ####
+proportion_OOS_skilled90 <- bind_cols(
+  1980:2021,
+  percent(proportion_OOS_skilled_positive_90$Bayes,accuracy = 0.01),
+  percent(proportion_OOS_skilled_positive_90$OLS, accuracy = 0.01),
+  percent(proportion_OOS_skilled_neg_90$Bayes,accuracy = 0.01),
+  percent(proportion_OOS_skilled_neg_90$OLS, accuracy = 0.01)
+)
+colnames(proportion_OOS_skilled90) <- c("Periods",'BayesP','OLSP', 'BayesN', 'OLSN')
+proportion_OOS_skilled90
+## Save
+# write.table((proportion_OOS_skilled90),
+#             file = 'porportion_OOS_table90.txt',sep = ',', row.names = F, quote = F)
+```
+### PLOTS
+``` {r, echo = FALSE}
+data_prop_plot_90 <- bind_cols(
+  Periods = 1980:2021,
+  (proportion_OOS_skilled_positive_90$Bayes),
+  (proportion_OOS_skilled_positive_90$OLS),
+  (proportion_OOS_skilled_neg_90$Bayes),
+  (proportion_OOS_skilled_neg_90$OLS)
+)
+## Positive
+# ggsave(filename = "OOS_Prop_P_90.png",
+ggplot(reshape2::melt(data_prop_plot_90[,1:3], id.var = "Periods"),
+       aes(Periods,value,colour = variable)) +
+  geom_line(aes(linetype=variable,group = variable))+
+  scale_linetype_manual("", values=c("solid", "dashed", "solid", "dashed"),
+                        labels = c("Bayes Positive Alpha","OLS Positive Alpha")) +
+  theme_classic()+
+  labs(x = "Out-of-Sample Years", y = "Proportion of \n positive alpha funds") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1.5))+
+  scale_y_continuous(labels = scales::percent)+
+  scale_color_manual("", values = c("steelblue3","red2"),
+                     labels = c("Bayes Positive Alpha","OLS Positive Alpha")) +
+  theme(legend.position = "bottom",legend.text = element_text(size = 8),
+        axis.text = element_text(size = 8),
+        axis.title.x = element_text(size = 11),
+        axis.title.y = element_text(size = 11),legend.title=element_blank())
+# ,width = 10, height = 4, dpi = 300, units = "in", device='png')
+
+## Negative
+# ggsave(filename = "OOS_Prop_N_90.png",
+ggplot(reshape2::melt(data_prop_plot_90[,c(1,4,5)], id.var = "Periods"),
+       aes(Periods,value,colour = variable)) +
+  geom_line(aes(linetype=variable,group = variable))+
+  scale_linetype_manual("", values=c("solid", "dashed", "solid", "dashed"),
+                        labels = c("Bayes Positive Alpha","OLS Positive Alpha")) +
+  theme_classic()+
+  labs(x = "Out-of-Sample Years", y = "Proportion of \n negative alpha funds") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1.5))+
+  scale_y_continuous(labels = scales::percent)+
+  scale_color_manual("", values = c("steelblue3","red2"),
+                     labels = c("Bayes Negative Alpha","OLS Negative Alpha")) +
+  theme(legend.position = "bottom",legend.text = element_text(size = 8),
+        axis.text = element_text(size = 8),
+        axis.title.x = element_text(size = 11),
+        axis.title.y = element_text(size = 11),legend.title=element_blank())
+# ,width = 10, height = 4, dpi = 300, units = "in", device='png')
+
+
+```
+
+
+## Other Plots
+```{r, echo = FALSE}
+# IS ####
+a <- melt(BayAlphaIS[,2:43])
+head(a)
+ggplot(a, aes(value, fill =  variable)) + geom_density()
+ggplot(a, aes(value, color =  variable)) + 
+  geom_density(alpha = 0.6) +
+  theme_bw() +
+  theme(legend.position = 'none') +
+  xlim(-0.02,0.02)
+# OOS ####
+a2 <- melt(BayAlphaOOS[,2:43])
+head(a)
+ggplot(a, aes(value, fill =  variable)) + geom_density()
+ggplot(a, aes(value, color =  variable)) + 
+  geom_density(alpha = 0.6) +
+  theme_bw() +
+  theme(legend.position = 'none') +
+  xlim(-0.05,0.05)
+
+
+```
+
